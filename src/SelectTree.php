@@ -82,6 +82,7 @@ class SelectTree extends Field implements HasAffixActions
 
             // Check if the relationship is a BelongsToMany relationship.
             if ($relationship instanceof BelongsToMany) {
+                return;
                 // Retrieve related model instances and extract their IDs into an array.
                 $state = $relationship->getResults()
                     ->pluck($relationship->getRelatedKeyName())
@@ -96,6 +97,7 @@ class SelectTree extends Field implements HasAffixActions
         $this->saveRelationshipsUsing(static function (self $component, $state) {
             // Check if the component's relationship is a BelongsToMany relationship.
             if ($component->getRelationship() instanceof BelongsToMany) {
+                return;
                 // Wrap the state in a collection and convert it to an array if it's not set.
                 $state = Collection::wrap($state ?? []);
 
@@ -156,7 +158,7 @@ class SelectTree extends Field implements HasAffixActions
         // Group results by their parent IDs
         foreach ($results as $result) {
             $parentId = $result->{$this->getParentAttribute()};
-            if (! isset($resultMap[$parentId])) {
+            if (!isset($resultMap[$parentId])) {
                 $resultMap[$parentId] = [];
             }
             $resultMap[$parentId][] = $result;
@@ -444,7 +446,7 @@ class SelectTree extends Field implements HasAffixActions
             return null;
         }
 
-        if (! $this->hasCreateOptionActionFormSchema()) {
+        if (!$this->hasCreateOptionActionFormSchema()) {
             return null;
         }
 
@@ -455,7 +457,7 @@ class SelectTree extends Field implements HasAffixActions
                 ));
             })
             ->action(static function (Action $action, array $arguments, SelectTree $component, array $data, ComponentContainer $form) {
-                if (! $component->getCreateOptionUsing()) {
+                if (!$component->getCreateOptionUsing()) {
                     throw new Exception("Select field [{$component->getStatePath()}] must have a [createOptionUsing()] closure set.");
                 }
 
@@ -474,7 +476,7 @@ class SelectTree extends Field implements HasAffixActions
                 $component->state($state);
                 $component->callAfterStateUpdated();
 
-                if (! ($arguments['another'] ?? false)) {
+                if (!($arguments['another'] ?? false)) {
                     return;
                 }
 
