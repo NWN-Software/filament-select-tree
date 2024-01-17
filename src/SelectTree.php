@@ -18,6 +18,7 @@ use Filament\Support\Facades\FilamentIcon;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Model;
 
 class SelectTree extends Field implements HasAffixActions
 {
@@ -72,6 +73,8 @@ class SelectTree extends Field implements HasAffixActions
     protected ?Closure $modifyManageOptionActionsUsing = null;
 
     protected ?Closure $createOptionUsing = null;
+
+    protected Model|Closure|string|null $model = null;
 
     protected function setUp(): void
     {
@@ -210,12 +213,13 @@ class SelectTree extends Field implements HasAffixActions
         return $node;
     }
 
-    public function relationship(string $relationship, string $titleAttribute, string $parentAttribute, ?Closure $modifyQueryUsing = null): self
+    public function relationship(string $relationship, string $titleAttribute, string $parentAttribute, ?Closure $modifyQueryUsing = null, ?Model $model = null): self
     {
         $this->relationship = $relationship;
         $this->titleAttribute = $titleAttribute;
         $this->parentAttribute = $parentAttribute;
         $this->modifyQueryUsing = $modifyQueryUsing;
+        $this->model = $model;
 
         return $this;
     }
