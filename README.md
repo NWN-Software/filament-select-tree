@@ -5,8 +5,7 @@
 
 This package adds a dynamic select tree field to your Laravel / Filament application, allowing you to create interactive hierarchical selection dropdowns based on relationships. It's handy for building selection dropdowns with various customization options.
 
-![Select Tree](https://github.com/CodeWithDennis/filament-select-tree/assets/23448484/d944b896-134b-414a-b654-9adecc43ba5e)
-
+![thumbnail](https://raw.githubusercontent.com/CodeWithDennis/filament-select-tree/3.x/resources/images/thumbnail.jpg)
 
 ## Installation
 
@@ -25,8 +24,6 @@ php artisan filament:assets
 Use the tree for a `BelongsToMany` relationship
 
 ```PHP
-use CodeWithDennis\FilamentSelectTree\SelectTree;
-
 SelectTree::make('categories')
     ->relationship('categories', 'name', 'parent_id')
 ```
@@ -34,10 +31,24 @@ SelectTree::make('categories')
 Use the tree for a `BelongsTo` relationship
 
 ```PHP
-use CodeWithDennis\FilamentSelectTree\SelectTree;
-
 SelectTree::make('category_id')
     ->relationship('category', 'name', 'parent_id')
+```
+
+## Custom Query
+
+Customize the parent query
+
+```PHP
+SelectTree::make('categories')
+    ->relationship(relationship: 'categories', titleAttribute: 'name', parentAttribute: 'parent_id', modifyQueryUsing: fn($query) => $query));
+```
+
+Customize the child query
+
+```PHP
+SelectTree::make('categories')
+    ->relationship(relationship: 'categories', titleAttribute: 'name', parentAttribute: 'parent_id', modifyChildQueryUsing: fn($query) => $query));
 ```
 
 ## Methods
@@ -132,7 +143,35 @@ Hide specific options in the tree
 ->hiddenOptions([2, 3, 4])
 ```
 
+Allow soft deleted items to be displayed
+
+```PHP
+->withTrashed()
+```
+
+Specify a different key for your model.
+For example: you have id, code and parent_code. Your model uses id as key, but the parent-child relation is established between code and parent_code
+
+```PHP
+->withKey('code')
+```
+
+Store fetched models for additional functionality
+
+```PHP
+->storeResults()
+```
+
+Now you can access the results in `disabledOptions` or `hiddenOptions`
+
+```PHP
+->disabledOptions(function ($state, SelectTree $component) {
+    $results = $component->getResults();
+})
+```
+
 ## Filters
+
 Use the tree in your table filters. Here's an example to show you how.
 
 ```bash
@@ -164,8 +203,11 @@ use CodeWithDennis\FilamentSelectTree\SelectTree;
         })
 ])
 ```
+
 ## Screenshots
-![download.png](./resources/images/example.png)
+![example-1](https://raw.githubusercontent.com/CodeWithDennis/filament-select-tree/3.x/resources/images/example-1.jpg)
+![example-2](https://raw.githubusercontent.com/CodeWithDennis/filament-select-tree/3.x/resources/images/example-2.jpg)
+![example-3](https://raw.githubusercontent.com/CodeWithDennis/filament-select-tree/3.x/resources/images/example-3.jpg)
 
 ## Contributing
 
