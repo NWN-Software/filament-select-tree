@@ -10,6 +10,7 @@ use Filament\Forms\Components\Concerns\CanBeDisabled;
 use Filament\Forms\Components\Concerns\CanBeSearchable;
 use Filament\Forms\Components\Concerns\HasActions;
 use Filament\Forms\Components\Concerns\HasAffixes;
+use Filament\Forms\Components\Concerns\HasPivotData;
 use Filament\Forms\Components\Concerns\HasPlaceholder;
 use Filament\Forms\Components\Contracts\HasAffixActions;
 use Filament\Forms\Components\Field;
@@ -17,6 +18,7 @@ use Filament\Forms\Form;
 use Filament\Support\Facades\FilamentIcon;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Database\Eloquent\Model;
 
@@ -26,6 +28,7 @@ class SelectTree extends Field implements HasAffixActions
     use CanBeSearchable;
     use HasActions;
     use HasAffixes;
+    use HasPivotData;
     use HasPlaceholder;
 
     protected string $view = 'select-tree::select-tree';
@@ -37,6 +40,8 @@ class SelectTree extends Field implements HasAffixActions
     protected string $emptyLabel = '';
 
     protected bool $independent = true;
+
+    protected ?string $customKey = null;
 
     protected string $titleAttribute;
 
@@ -56,6 +61,8 @@ class SelectTree extends Field implements HasAffixActions
 
     protected ?Closure $modifyQueryUsing;
 
+    protected ?Closure $modifyChildQueryUsing;
+
     protected Closure|int $defaultOpenLevel = 0;
 
     protected string $direction = 'auto';
@@ -73,6 +80,12 @@ class SelectTree extends Field implements HasAffixActions
     protected ?Closure $modifyManageOptionActionsUsing = null;
 
     protected ?Closure $createOptionUsing = null;
+
+    protected Closure|bool|null $withTrashed = false;
+
+    protected bool $storeResults = false;
+
+    protected Collection|array|null $results = null;
 
     protected Model|Closure|string|null $model = null;
 
@@ -102,10 +115,19 @@ class SelectTree extends Field implements HasAffixActions
             if ($component->getRelationship() instanceof BelongsToMany) {
                 return;
                 // Wrap the state in a collection and convert it to an array if it's not set.
-                $state = Collection::wrap($state ?? []);
+                $state = Arr::wrap($state ?? []);
+
+                $pivotData = $component->getPivotData();
 
                 // Sync the relationship with the provided state (IDs).
-                $component->getRelationship()->sync($state->toArray());
+                if ($pivotData === []) {
+                    $component->getRelationship()->sync($state ?? []);
+
+                    return;
+                }
+
+                // Sync the relationship with the provided state (IDs) plus pivot data.
+                $component->getRelationship()->syncWithPivotValues($state ?? [], $pivotData);
             }
         });
 
@@ -116,7 +138,7 @@ class SelectTree extends Field implements HasAffixActions
 
             $form->model($record)->saveRelationships();
 
-            return $record->getKey();
+            return $component->getCustomKey($record);
         });
 
         $this->suffixActions([
@@ -135,12 +157,26 @@ class SelectTree extends Field implements HasAffixActions
             $nullParentQuery = $this->evaluate($this->modifyQueryUsing, ['query' => $nullParentQuery]);
         }
 
-        // Fetch results for both queries
+        // If we're at the child level and a modification callback is provided, apply it to non null query
+        if ($this->modifyChildQueryUsing) {
+            $nonNullParentQuery = $this->evaluate($this->modifyChildQueryUsing, ['query' => $nonNullParentQuery]);
+        }
+
+        if ($this->withTrashed) {
+            $nullParentQuery->withTrashed($this->withTrashed);
+            $nonNullParentQuery->withTrashed($this->withTrashed);
+        }
+
         $nullParentResults = $nullParentQuery->get();
         $nonNullParentResults = $nonNullParentQuery->get();
 
         // Combine the results from both queries
         $combinedResults = $nullParentResults->concat($nonNullParentResults);
+
+        // Store results for additional functionality
+        if ($this->storeResults) {
+            $this->results = $combinedResults;
+        }
 
         return $this->buildTreeFromResults($combinedResults);
     }
@@ -186,21 +222,24 @@ class SelectTree extends Field implements HasAffixActions
 
     private function buildNode($result, $resultMap, $disabledOptions, $hiddenOptions): array
     {
+        $key = $this->getCustomKey($result);
+
         // Create a node with 'name' and 'value' attributes
         $node = [
             'name' => $result->{$this->getTitleAttribute()},
-            'value' => $result->getKey(),
-            'disabled' => in_array($result->getKey(), $disabledOptions),
-            'hidden' => in_array($result->getKey(), $hiddenOptions),
+            'value' => $key,
+            'parent' => $result->{$this->getParentAttribute()},
+            'disabled' => in_array($key, $disabledOptions),
+            'hidden' => in_array($key, $hiddenOptions),
         ];
 
         // Check if the result has children
-        if (isset($resultMap[$result->getKey()])) {
+        if (isset($resultMap[$key])) {
             $children = collect();
             // Recursively build child nodes
-            foreach ($resultMap[$result->getKey()] as $child) {
+            foreach ($resultMap[$key] as $child) {
                 // don't add the hidden ones
-                if (in_array($child->getKey(), $hiddenOptions)) {
+                if (in_array($this->getCustomKey($child), $hiddenOptions)) {
                     continue;
                 }
                 $childNode = $this->buildNode($child, $resultMap, $disabledOptions, $hiddenOptions);
@@ -213,12 +252,13 @@ class SelectTree extends Field implements HasAffixActions
         return $node;
     }
 
-    public function relationship(string $relationship, string $titleAttribute, string $parentAttribute, ?Closure $modifyQueryUsing = null, ?Model $model = null): self
+    public function relationship(string $relationship, string $titleAttribute, string $parentAttribute, ?Closure $modifyQueryUsing = null, ?Closure $modifyChildQueryUsing = null, ?Model $model = null): self
     {
         $this->relationship = $relationship;
         $this->titleAttribute = $titleAttribute;
         $this->parentAttribute = $parentAttribute;
         $this->modifyQueryUsing = $modifyQueryUsing;
+        $this->modifyChildQueryUsing = $modifyChildQueryUsing;
         $this->model = $model;
 
         return $this;
@@ -227,6 +267,13 @@ class SelectTree extends Field implements HasAffixActions
     public function withCount(bool $withCount = true): static
     {
         $this->withCount = $withCount;
+
+        return $this;
+    }
+
+    public function withTrashed(bool $withTrashed = true): static
+    {
+        $this->withTrashed = $withTrashed;
 
         return $this;
     }
@@ -307,6 +354,13 @@ class SelectTree extends Field implements HasAffixActions
         return $this;
     }
 
+    public function withKey(string $customKey): static
+    {
+        $this->customKey = $customKey;
+
+        return $this;
+    }
+
     public function disabledOptions(Closure|array $disabledOptions): static
     {
         $this->disabledOptions = $disabledOptions;
@@ -335,9 +389,21 @@ class SelectTree extends Field implements HasAffixActions
         return $this;
     }
 
+    public function storeResults(bool $storeResults = true): static
+    {
+        $this->storeResults = $storeResults;
+
+        return $this;
+    }
+
     public function getTree(): Collection|array
     {
         return $this->evaluate($this->buildTree());
+    }
+
+    public function getResults(): Collection|array|null
+    {
+        return $this->evaluate($this->results);
     }
 
     public function getExpandSelected(): bool
@@ -350,9 +416,19 @@ class SelectTree extends Field implements HasAffixActions
         return $this->evaluate($this->grouped);
     }
 
+    public function getWithTrashed(): bool
+    {
+        return $this->evaluate($this->withTrashed);
+    }
+
     public function getIndependent(): bool
     {
         return $this->evaluate($this->independent);
+    }
+
+    public function getCustomKey($record)
+    {
+        return is_null($this->customKey) ? $record->getKey() : $record->{$this->customKey};
     }
 
     public function getWithCount(): bool
@@ -387,7 +463,7 @@ class SelectTree extends Field implements HasAffixActions
 
     public function getEmptyLabel(): string
     {
-        return $this->emptyLabel ? $this->evaluate($this->emptyLabel) : __('No results found');
+        return $this->emptyLabel ? $this->evaluate($this->emptyLabel) : __('No options match your search.');
     }
 
     public function getDirection(): string
@@ -513,5 +589,12 @@ class SelectTree extends Field implements HasAffixActions
         }
 
         return $action;
+    }
+
+    public function createOptionModalHeading(string|Closure|null $heading): static
+    {
+        $this->createOptionModalHeading = $heading;
+
+        return $this;
     }
 }
