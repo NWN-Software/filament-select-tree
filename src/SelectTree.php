@@ -37,8 +37,6 @@ class SelectTree extends Field implements HasAffixActions
 
     protected bool $alwaysOpen = false;
 
-    protected string $emptyLabel = '';
-
     protected bool $independent = true;
 
     protected ?string $customKey = null;
@@ -140,6 +138,10 @@ class SelectTree extends Field implements HasAffixActions
 
             return $component->getCustomKey($record);
         });
+
+        $this->dehydrated(fn (SelectTree $component): bool => ! $component->getRelationship() instanceof BelongsToMany);
+
+        $this->placeholder(static fn (SelectTree $component): ?string => $component->isDisabled() ? null : __('filament-forms::components.select.placeholder'));
 
         $this->suffixActions([
             static fn (SelectTree $component): ?Action => $component->getCreateOptionAction(),
@@ -342,7 +344,7 @@ class SelectTree extends Field implements HasAffixActions
 
     public function emptyLabel(string $emptyLabel): static
     {
-        $this->emptyLabel = $emptyLabel;
+        $this->noSearchResultsMessage($emptyLabel);
 
         return $this;
     }
@@ -463,7 +465,7 @@ class SelectTree extends Field implements HasAffixActions
 
     public function getEmptyLabel(): string
     {
-        return $this->emptyLabel ? $this->evaluate($this->emptyLabel) : __('No options match your search.');
+        return $this->getNoSearchResultsMessage();
     }
 
     public function getDirection(): string
