@@ -16,11 +16,11 @@ use Filament\Forms\Components\Contracts\HasAffixActions;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Form;
 use Filament\Support\Facades\FilamentIcon;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
-use Illuminate\Database\Eloquent\Model;
 
 class SelectTree extends Field implements HasAffixActions
 {
@@ -41,9 +41,9 @@ class SelectTree extends Field implements HasAffixActions
 
     protected ?string $customKey = null;
 
-    protected string $titleAttribute;
+    protected string $titleAttribute = 'name';
 
-    protected string $parentAttribute;
+    protected string $parentAttribute = 'parent';
 
     protected null|int|string $parentNullValue = null;
 
@@ -55,7 +55,7 @@ class SelectTree extends Field implements HasAffixActions
 
     protected bool $grouped = true;
 
-    protected string|Closure $relationship;
+    protected string|Closure|null $relationship = null;
 
     protected ?Closure $modifyQueryUsing;
 
@@ -87,12 +87,19 @@ class SelectTree extends Field implements HasAffixActions
 
     protected Model|Closure|string|null $model = null;
 
+    protected array|Closure|null $options = null;
+
     protected function setUp(): void
     {
         // Load the state from relationships using a callback function.
         $this->loadStateFromRelationshipsUsing(static function (self $component): void {
             // Get the current relationship associated with the component.
             $relationship = $component->getRelationship();
+
+            // If no relationship is set, return early
+            if (! $relationship) {
+                return;
+            }
 
             // Check if the relationship is a BelongsToMany relationship.
             if ($relationship instanceof BelongsToMany) {
@@ -150,6 +157,18 @@ class SelectTree extends Field implements HasAffixActions
 
     private function buildTree(): Collection
     {
+        // If options are set directly, use them
+        if ($this->options !== null) {
+            $options = $this->evaluate($this->options);
+
+            return $this->buildTreeFromResults(collect($options));
+        }
+
+        // If no relationship is set, return empty collection
+        if (! $this->relationship) {
+            return collect();
+        }
+
         // Start with two separate query builders
         $nullParentQuery = $this->getRelationship()->getRelated()->query()->where($this->getParentAttribute(), $this->getParentNullValue());
         $nonNullParentQuery = $this->getRelationship()->getRelated()->query()->whereNot($this->getParentAttribute(), $this->getParentNullValue());
@@ -198,8 +217,8 @@ class SelectTree extends Field implements HasAffixActions
 
         // Group results by their parent IDs
         foreach ($results as $result) {
-            $parentId = $result->{$this->getParentAttribute()};
-            if (!isset($resultMap[$parentId])) {
+            $parentId = is_array($result) ? ($result['parent'] ?? null) : $result->{$this->getParentAttribute()};
+            if (! isset($resultMap[$parentId])) {
                 $resultMap[$parentId] = [];
             }
             $resultMap[$parentId][] = $result;
@@ -224,13 +243,13 @@ class SelectTree extends Field implements HasAffixActions
 
     private function buildNode($result, $resultMap, $disabledOptions, $hiddenOptions): array
     {
-        $key = $this->getCustomKey($result);
+        $key = is_array($result) ? $result['value'] : $this->getCustomKey($result);
 
         // Create a node with 'name' and 'value' attributes
         $node = [
-            'name' => $result->{$this->getTitleAttribute()},
+            'name' => is_array($result) ? $result['name'] : $result->{$this->getTitleAttribute()},
             'value' => $key,
-            'parent' => $result->{$this->getParentAttribute()},
+            'parent' => is_array($result) ? ($result['parent'] ?? null) : $result->{$this->getParentAttribute()},
             'disabled' => in_array($key, $disabledOptions),
             'hidden' => in_array($key, $hiddenOptions),
         ];
@@ -241,7 +260,7 @@ class SelectTree extends Field implements HasAffixActions
             // Recursively build child nodes
             foreach ($resultMap[$key] as $child) {
                 // don't add the hidden ones
-                if (in_array($this->getCustomKey($child), $hiddenOptions)) {
+                if (in_array(is_array($child) ? $child['value'] : $this->getCustomKey($child), $hiddenOptions)) {
                     continue;
                 }
                 $childNode = $this->buildNode($child, $resultMap, $disabledOptions, $hiddenOptions);
@@ -249,9 +268,27 @@ class SelectTree extends Field implements HasAffixActions
             }
             // Add children to the node
             $node['children'] = $children->toArray();
+        } elseif (is_array($result) && isset($result['children']) && is_array($result['children'])) {
+            // Handle direct children from options array
+            $children = collect();
+            foreach ($result['children'] as $child) {
+                if (in_array($child['value'], $hiddenOptions)) {
+                    continue;
+                }
+                $childNode = $this->buildNode($child, $resultMap, $disabledOptions, $hiddenOptions);
+                $children->push($childNode);
+            }
+            $node['children'] = $children->toArray();
         }
 
         return $node;
+    }
+
+    public function options(array|Closure $options): static
+    {
+        $this->options = $options;
+
+        return $this;
     }
 
     public function relationship(string $relationship, string $titleAttribute, string $parentAttribute, ?Closure $modifyQueryUsing = null, ?Closure $modifyChildQueryUsing = null, ?Model $model = null): self
@@ -294,8 +331,12 @@ class SelectTree extends Field implements HasAffixActions
         return $this;
     }
 
-    public function getRelationship(): BelongsToMany|BelongsTo
+    public function getRelationship(): BelongsToMany|BelongsTo|null
     {
+        if (! $this->relationship) {
+            return null;
+        }
+
         return $this->getModelInstance()->{$this->evaluate($this->relationship)}();
     }
 
@@ -528,7 +569,7 @@ class SelectTree extends Field implements HasAffixActions
             return null;
         }
 
-        if (!$this->hasCreateOptionActionFormSchema()) {
+        if (! $this->hasCreateOptionActionFormSchema()) {
             return null;
         }
 
@@ -539,7 +580,7 @@ class SelectTree extends Field implements HasAffixActions
                 ));
             })
             ->action(static function (Action $action, array $arguments, SelectTree $component, array $data, ComponentContainer $form) {
-                if (!$component->getCreateOptionUsing()) {
+                if (! $component->getCreateOptionUsing()) {
                     throw new Exception("Select field [{$component->getStatePath()}] must have a [createOptionUsing()] closure set.");
                 }
 
@@ -558,7 +599,7 @@ class SelectTree extends Field implements HasAffixActions
                 $component->state($state);
                 $component->callAfterStateUpdated();
 
-                if (!($arguments['another'] ?? false)) {
+                if (! ($arguments['another'] ?? false)) {
                     return;
                 }
 
