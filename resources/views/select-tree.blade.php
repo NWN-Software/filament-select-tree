@@ -14,14 +14,13 @@
     <div
         wire:key="{{ $this->getId() }}.{{ $getStatePath() }}.{{ $field::class }}.item"
         wire:ignore
-        x-ignore
-        @if (FilamentView::hasSpaMode())
-            ax-load="visible"
+        @if (FilamentView::hasSpaMode(url()->current()))
+            x-load="visible || event (ax-modal-opened)"
         @else
-            ax-load
+            x-load
         @endif
-        ax-load-css="{{ FilamentAsset::getStyleHref('filament-select-tree-styles', package: 'codewithdennis/filament-select-tree') }}"
-        ax-load-src="{{ FilamentAsset::getAlpineComponentSrc('filament-select-tree', package: 'codewithdennis/filament-select-tree') }}"
+        x-load-css="[@js(FilamentAsset::getStyleHref('filament-select-tree-styles', package: 'codewithdennis/filament-select-tree'))]"
+        x-load-src="{{ FilamentAsset::getAlpineComponentSrc('filament-select-tree', package: 'codewithdennis/filament-select-tree') }}"
         x-data="selectTree({
             name: @js($getName()),
             state: $wire.{{ $applyStateBindingModifiers("\$entangle('{$getStatePath()}')") }},
